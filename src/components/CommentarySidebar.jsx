@@ -44,8 +44,9 @@ function CommentarySidebar({
   ) : []
 
   // Get commentaries for current chapter from current work (only for Revelation)
+  // Include both chapter-level commentaries (verses === null) and verse-specific ones
   const chapterCommentaries = (isRevelation && currentWorkData?.commentaries.filter(c => 
-    c.chapter === chapter && c.verses
+    c.chapter === chapter
   )) || []
 
   // Get introduction sections (only for Revelation)
@@ -55,7 +56,8 @@ function CommentarySidebar({
   // Get work URLs
   const workOriginalUrl = currentWorkData?.originalUrl
   const workAudioUrl = currentWorkData?.audioUrl
-  const hasWorkLinks = workOriginalUrl || workAudioUrl
+  const workTranscriptUrl = currentWorkData?.transcriptUrl
+  const hasWorkLinks = workOriginalUrl || workAudioUrl || workTranscriptUrl
 
   // Load existing note for selected verse
   useEffect(() => {
@@ -81,7 +83,7 @@ function CommentarySidebar({
         c.verses?.some(v => v.chapter === selectedVerse.chapter && v.verse === selectedVerse.verse)
       )
       if (commentary) {
-        const verseKey = getVerseKey(commentary.verses)
+        const verseKey = getVerseKey(commentary.verses, commentary.reference)
         setExpandedVerses(prev => ({ ...prev, [verseKey]: true }))
       }
     }
@@ -101,8 +103,11 @@ function CommentarySidebar({
     }))
   }
 
-  const getVerseKey = (verses) => {
-    if (!verses || verses.length === 0) return null
+  const getVerseKey = (verses, reference) => {
+    if (!verses || verses.length === 0) {
+      // Use reference as key for chapter-level commentaries
+      return reference || 'chapter'
+    }
     const first = verses[0]
     const last = verses[verses.length - 1]
     if (first.verse === last.verse) {
@@ -175,15 +180,15 @@ function CommentarySidebar({
 
   return (
     <>
-      {/* Backdrop for mobile */}
+      {/* Backdrop - visible on mobile, clickable on all sizes */}
       <div 
-        className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+        className="fixed inset-0 bg-black/30 lg:bg-transparent z-40 cursor-pointer"
         onClick={onClose}
       />
 
-      {/* Sidebar - full screen on mobile, fixed width on desktop */}
+      {/* Sidebar - full screen on mobile, wider on larger screens */}
       <aside 
-        className="fixed top-0 right-0 bottom-0 w-full lg:w-96 flex flex-col bg-white border-l border-gray-200 shadow-lg z-50 lg:z-30 transform transition-transform duration-300 ease-out animate-slide-in-right"
+        className="fixed top-0 right-0 bottom-0 w-full lg:w-[420px] xl:w-[560px] 2xl:w-[672px] flex flex-col bg-white border-l border-gray-200 shadow-lg z-50 lg:z-30 transform transition-transform duration-300 ease-out animate-slide-in-right"
         ref={sidebarRef}
       >
         {/* Top Bar with Close */}
@@ -363,6 +368,19 @@ function CommentarySidebar({
                                 <span className="text-gray-400 ml-auto">↗</span>
                               </a>
                             )}
+                            {workTranscriptUrl && (
+                              <a
+                                href={workTranscriptUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 transition-colors text-sm"
+                                onClick={() => setShowWorkLinksDropdown(false)}
+                              >
+                                <span>📝</span>
+                                <span>View Transcript</span>
+                                <span className="text-gray-400 ml-auto">↗</span>
+                              </a>
+                            )}
                           </div>
                         </div>
                       )}
@@ -523,7 +541,7 @@ function CommentarySidebar({
           ) : (
             <div className="space-y-3">
               {chapterCommentaries.map((commentary) => {
-                const verseKey = getVerseKey(commentary.verses)
+                const verseKey = getVerseKey(commentary.verses, commentary.reference)
                 const isExpanded = expandedVerses[verseKey]
                 const commentaryIsBookmarked = isCommentaryBookmarked?.(commentary.id)
                 

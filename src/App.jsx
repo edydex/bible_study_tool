@@ -1,20 +1,41 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom'
 import Header from './components/Header'
 import BibleChapter from './components/BibleChapter'
 import CommentarySidebar from './components/CommentarySidebar'
 import BookmarkManager from './components/BookmarkManager'
 import SearchResults from './components/SearchResults'
-import MobileBottomNav from './components/MobileBottomNav'
+import BottomNav from './components/BottomNav'
+import TranscriptViewer from './components/TranscriptViewer'
 import { useBookmarks } from './hooks/useBookmarks'
 import bibleData from './data/bible-web.json'
 import { bibleBooks } from './data/bible-books.js'
 import commentaryData from './data/ortlund-commentary.json'
 import { authors as initialAuthors, loadOrtlundCommentaries, getCommentaryForVerse as getCommentaryFromAuthor, hasAnyCommentary } from './data/authors'
 
-function App() {
-  const [currentBook, setCurrentBook] = useState('Genesis')
-  const [currentChapter, setCurrentChapter] = useState(1)
+// Helper to convert book name to URL slug
+function bookToSlug(bookName) {
+  return bookName.toLowerCase().replace(/\s+/g, '-')
+}
+
+// Helper to convert URL slug back to book name
+function slugToBook(slug) {
+  if (!slug) return null
+  const normalized = slug.toLowerCase().replace(/-/g, ' ')
+  const book = bibleBooks.find(b => b.name.toLowerCase() === normalized)
+  return book?.name || null
+}
+
+function BibleStudyApp() {
+  const { bookSlug, chapterNum } = useParams()
+  const navigate = useNavigate()
+  
+  // Parse URL params into book and chapter
+  const urlBook = slugToBook(bookSlug)
+  const urlChapter = chapterNum ? parseInt(chapterNum, 10) : null
+
+  const [currentBook, setCurrentBook] = useState(urlBook || 'Genesis')
+  const [currentChapter, setCurrentChapter] = useState(urlChapter || 1)
   const [showBookmarkManager, setShowBookmarkManager] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
@@ -36,6 +57,27 @@ function App() {
     notes, saveNote, deleteNote, hasNote
   } = useBookmarks()
 
+  // Sync URL to state when URL changes
+  useEffect(() => {
+    if (urlBook && urlBook !== currentBook) {
+      setCurrentBook(urlBook)
+    }
+    if (urlChapter && urlChapter !== currentChapter) {
+      setCurrentChapter(urlChapter)
+    }
+  }, [urlBook, urlChapter])
+
+  // Update URL when book/chapter changes (but avoid loops)
+  useEffect(() => {
+    const expectedSlug = bookToSlug(currentBook)
+    const currentPath = `/${expectedSlug}/${currentChapter}`
+    
+    // Only navigate if URL doesn't match current state
+    if (bookSlug !== expectedSlug || parseInt(chapterNum) !== currentChapter) {
+      navigate(currentPath, { replace: true })
+    }
+  }, [currentBook, currentChapter, navigate])
+
   // Check screen size for responsive behavior
   useEffect(() => {
     const checkScreenSize = () => {
@@ -54,13 +96,14 @@ function App() {
     }))
   }, [])
 
-  // Get commentary for a specific verse (legacy for mobile modal)
+  // Get commentary for a specific verse or chapter (legacy for mobile modal)
   const getCommentaryForVerse = (chapter, verse) => {
     // Commentary only available for Revelation
     if (currentBook !== 'Revelation') return null
+    // First try verse-specific, then fall back to chapter-level
     return commentaryData.commentaries.find(c => 
       c.verses && c.verses.some(v => v.chapter === chapter && v.verse === verse)
-    )
+    ) || commentaryData.commentaries.find(c => c.chapter === chapter && !c.verses)
   }
 
   // Check if verse has commentary (from any author) - only Revelation has commentary
@@ -250,7 +293,7 @@ function App() {
   }
 
   return (
-    <Router>
+    <>
       <div className="min-h-screen bg-background">
         <Header 
           onSearch={handleSearch}
@@ -262,8 +305,8 @@ function App() {
         
         <div className="flex">
           {/* Main Content */}
-          <main className={`flex-1 px-3 sm:px-4 py-4 sm:py-6 pb-20 lg:pb-6 transition-all duration-300 ${
-            isLargeScreen && isSidebarOpen ? 'mr-96' : ''
+          <main className={`flex-1 px-3 sm:px-4 py-4 sm:py-6 pb-20 transition-all duration-300 ${
+            isLargeScreen && isSidebarOpen ? 'lg:mr-[420px] xl:mr-[560px] 2xl:mr-[672px]' : ''
           }`}>
             <div className="container mx-auto max-w-3xl" ref={bibleContainerRef}>
               {searchResults ? (
@@ -289,65 +332,8 @@ function App() {
                 />
               ) : (
                 <>
-                  {/* Chapter Navigation - Desktop only */}
-                  <div className="hidden lg:flex items-center justify-between mb-6">
-                    <button 
-                      onClick={goToPrevious}
-                      disabled={!hasPrevious}
-                      className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
-                    >
-                      ← Previous
-                    </button>
-                    
-                    <div className="flex items-center gap-2">
-                      <select 
-                        value={currentBook}
-                        onChange={(e) => {
-                          setCurrentBook(e.target.value)
-                          setCurrentChapter(1)
-                        }}
-                        className="px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      >
-                        <optgroup label="Old Testament">
-                          {bibleBooks.filter(b => b.testament === 'OT').map(b => (
-                            <option key={b.name} value={b.name}>
-                              {b.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="New Testament">
-                          {bibleBooks.filter(b => b.testament === 'NT').map(b => (
-                            <option key={b.name} value={b.name}>
-                              {b.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </select>
-                      <select 
-                        value={currentChapter}
-                        onChange={(e) => setCurrentChapter(Number(e.target.value))}
-                        className="px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      >
-                        {currentBookData?.chapters.map(c => (
-                          <option key={c.number} value={c.number}>
-                            {c.number}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="text-gray-600">of {currentBookMeta?.chapters || 0}</span>
-                    </div>
-                    
-                    <button 
-                      onClick={goToNext}
-                      disabled={!hasNext}
-                      className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
-                    >
-                      Next →
-                    </button>
-                  </div>
-
-                  {/* Mobile Chapter Title */}
-                  <h2 className="lg:hidden text-center text-xl font-bold text-primary mb-4 heading-text">
+                  {/* Chapter Title */}
+                  <h2 className="text-center text-xl font-bold text-primary mb-4 heading-text">
                     {currentBook} {currentChapter}
                   </h2>
 
@@ -368,7 +354,7 @@ function App() {
                   {!isSidebarOpen && (
                     <button 
                       onClick={() => setIsSidebarOpen(true)}
-                      className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 p-3 bg-secondary text-white rounded-full shadow-lg hover:bg-amber-600 transition-all duration-300 z-40"
+                      className="fixed bottom-20 right-4 sm:right-6 p-3 bg-secondary text-white rounded-full shadow-lg hover:bg-amber-600 transition-all duration-300 z-40"
                       title="Show Commentary"
                     >
                       📖
@@ -378,8 +364,8 @@ function App() {
                   {/* Back to Top */}
                   <button 
                     onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className={`fixed bottom-20 lg:bottom-6 p-3 bg-primary text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-300 ${
-                      isLargeScreen && isSidebarOpen ? 'right-[26rem]' : isSidebarOpen ? 'right-4 sm:right-6' : 'left-4 sm:left-6'
+                    className={`fixed bottom-20 p-3 bg-primary text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-300 ${
+                      isLargeScreen && isSidebarOpen ? 'right-[26rem] xl:right-[36rem] 2xl:right-[44rem]' : isSidebarOpen ? 'right-4 sm:right-6' : 'left-4 sm:left-6'
                     }`}
                     title="Back to top"
                   >
@@ -458,9 +444,9 @@ function App() {
           />
         )}
 
-        {/* Mobile Bottom Navigation */}
+        {/* Bottom Navigation */}
         {!searchResults && !showBookmarkManager && (
-          <MobileBottomNav
+          <BottomNav
             currentBook={currentBook}
             currentChapter={currentChapter}
             books={bibleBooks}
@@ -469,16 +455,32 @@ function App() {
             onNext={goToNext}
             hasPrevious={hasPrevious}
             hasNext={hasNext}
+            isSidebarOpen={isLargeScreen && isSidebarOpen}
           />
         )}
 
         {/* Toast Notification */}
         {toast && (
-          <div className="fixed bottom-20 lg:bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in">
+          <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in">
             {toast}
           </div>
         )}
       </div>
+    </>
+  )
+}
+
+// Main App with Router
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/transcript/:transcriptId" element={<TranscriptViewer />} />
+        <Route path="/:bookSlug/:chapterNum" element={<BibleStudyApp />} />
+        <Route path="/:bookSlug" element={<BibleStudyApp />} />
+        <Route path="/" element={<Navigate to="/genesis/1" replace />} />
+        <Route path="*" element={<Navigate to="/genesis/1" replace />} />
+      </Routes>
     </Router>
   )
 }

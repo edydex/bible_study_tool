@@ -204,6 +204,7 @@ export function loadOrtlundCommentaries(commentaryData) {
     if (commentaryData.metadata) {
       ortlund.works[0].originalUrl = commentaryData.metadata.originalUrl
       ortlund.works[0].audioUrl = commentaryData.metadata.audioUrl
+      ortlund.works[0].transcriptUrl = commentaryData.metadata.transcriptUrl
     }
     // Load introduction sections
     ortlund.works[0].introduction = commentaryData.introduction || []
@@ -225,11 +226,15 @@ export function getCommentariesForChapter(authorId, workId, chapter) {
 }
 
 // Check if a verse has commentary from any author
+// Now also checks for chapter-level commentaries (where verses is null)
 export function hasAnyCommentary(chapter, verse, authorsData) {
   return authorsData.some(author =>
     author.works.some(work =>
       work.commentaries.some(c =>
-        c.verses && c.verses.some(v => v.chapter === chapter && v.verse === verse)
+        c.chapter === chapter && (
+          !c.verses || // Chapter-level commentary
+          c.verses.some(v => v.chapter === chapter && v.verse === verse)
+        )
       )
     )
   )

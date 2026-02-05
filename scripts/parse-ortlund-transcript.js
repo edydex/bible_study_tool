@@ -76,35 +76,208 @@ for (const section of sections) {
       const endChapter = chapterMatch[2] ? parseInt(chapterMatch[2]) : startChapter
       
       if (startChapter === endChapter) {
-        // Single chapter
-        commentaries.push({
-          id: `ortlund_${idCounter++}`,
-          reference: `Chapter ${startChapter}`,
-          timestamp: section.timestamp,
-          chapter: startChapter,
-          text: section.text,
-          verses: null
-        })
+        // Single chapter - extract verse-specific commentary
+        const verseCommentaries = extractVerseCommentaries(section.text, startChapter, section.timestamp, idCounter)
+        idCounter += verseCommentaries.length
+        commentaries.push(...verseCommentaries)
       } else {
         // Multi-chapter section - try to split by context or create entries for each
         const splitContent = tryToSplitByChapter(section.text, startChapter, endChapter)
         
         for (let ch = startChapter; ch <= endChapter; ch++) {
-          commentaries.push({
-            id: `ortlund_${idCounter++}`,
-            reference: `Chapter ${ch}`,
-            timestamp: section.timestamp,
-            chapter: ch,
-            text: splitContent[ch] || section.text,
-            originalSection: `Chapters ${startChapter}–${endChapter}`,
-            verses: null
-          })
+          const chapterText = splitContent[ch] || section.text
+          const verseCommentaries = extractVerseCommentaries(chapterText, ch, section.timestamp, idCounter, `Chapters ${startChapter}–${endChapter}`)
+          idCounter += verseCommentaries.length
+          commentaries.push(...verseCommentaries)
         }
       }
     } else {
       console.warn(`Unknown section type: ${section.title}`)
     }
   }
+}
+
+/**
+ * Extract verse-specific commentaries from chapter text
+ * Returns array of commentary objects, including a chapter-level one if needed
+ */
+function extractVerseCommentaries(text, chapter, timestamp, startId, originalSection = null) {
+  const results = []
+  const paragraphs = text.split(/\r?\n\r?\n+/)
+  
+  // Patterns to find verse references
+  const versePatterns = [
+    // "verse 3" or "verses 3-5" or "verses 3 to 5" or "verses 3 and 4"
+    /\bverses?\s+(\d+)(?:\s*[-–to]+\s*(\d+))?(?:\s+(?:and|,)\s*(\d+))?/gi,
+    // "Revelation 1:3" or "Rev 1:3" or "1:3"
+    /\b(?:revelation|rev)?\s*\d+:(\d+)(?:\s*[-–]\s*(\d+))?/gi,
+    // "in verse 3" or "at verse 3"
+    /\b(?:in|at|from|see|here in)\s+verse\s+(\d+)/gi,
+    // "v. 3" or "v3" or "vv. 3-5"
+    /\bvv?\.?\s*(\d+)(?:\s*[-–]\s*(\d+))?/gi
+  ]
+  
+  // Track which paragraphs are assigned to which verses
+  const paragraphVerses = new Map() // paragraphIndex -> Set of verse numbers
+  const verseParagraphs = new Map() // verse number -> Set of paragraph indices
+  
+  // Scan each paragraph for verse references
+  for (let i = 0; i < paragraphs.length; i++) {
+    const para = paragraphs[i]
+    const versesInPara = new Set()
+    
+    for (const pattern of versePatterns) {
+      pattern.lastIndex = 0 // Reset regex
+      let match
+      while ((match = pattern.exec(para)) !== null) {
+        const startVerse = parseInt(match[1])
+        const endVerse = match[2] ? parseInt(match[2]) : startVerse
+        const additionalVerse = match[3] ? parseInt(match[3]) : null
+        
+        // Add all verses in range (but sanity check - verses should be 1-30ish)
+        for (let v = startVerse; v <= Math.min(endVerse, 50); v++) {
+          versesInPara.add(v)
+        }
+        if (additionalVerse && additionalVerse <= 50) {
+          versesInPara.add(additionalVerse)
+        }
+      }
+    }
+    
+    if (versesInPara.size > 0) {
+      paragraphVerses.set(i, versesInPara)
+      for (const v of versesInPara) {
+        if (!verseParagraphs.has(v)) {
+          verseParagraphs.set(v, new Set())
+        }
+        verseParagraphs.get(v).add(i)
+      }
+    }
+  }
+  
+  // If we found verse-specific content, create entries
+  if (verseParagraphs.size > 0) {
+    // Group consecutive verses that share paragraphs
+    const verseGroups = groupVerses(verseParagraphs, paragraphVerses, paragraphs)
+    
+    for (const group of verseGroups) {
+      const verseList = group.verses.map(v => ({ chapter, verse: v }))
+      const verseRef = group.verses.length === 1 
+        ? `${chapter}:${group.verses[0]}`
+        : `${chapter}:${group.verses[0]}-${group.verses[group.verses.length - 1]}`
+      
+      results.push({
+        id: `ortlund_${startId + results.length}`,
+        reference: verseRef,
+        timestamp,
+        chapter,
+        text: group.text,
+        verses: verseList,
+        ...(originalSection && { originalSection })
+      })
+    }
+    
+    // Check if there's remaining content that's not verse-specific (intro paragraphs)
+    const assignedParagraphs = new Set()
+    for (const group of verseGroups) {
+      for (const idx of group.paragraphIndices) {
+        assignedParagraphs.add(idx)
+      }
+    }
+    
+    const unassignedParagraphs = paragraphs.filter((_, i) => !assignedParagraphs.has(i))
+    if (unassignedParagraphs.length > 0 && unassignedParagraphs.some(p => p.trim().length > 100)) {
+      // Add chapter-level commentary for intro/overview content
+      results.unshift({
+        id: `ortlund_${startId + results.length}`,
+        reference: `Chapter ${chapter} Overview`,
+        timestamp,
+        chapter,
+        text: unassignedParagraphs.join('\n\n'),
+        verses: null,
+        ...(originalSection && { originalSection })
+      })
+    }
+  } else {
+    // No verse references found - keep as chapter-level
+    results.push({
+      id: `ortlund_${startId}`,
+      reference: `Chapter ${chapter}`,
+      timestamp,
+      chapter,
+      text,
+      verses: null,
+      ...(originalSection && { originalSection })
+    })
+  }
+  
+  return results
+}
+
+/**
+ * Group verses that share paragraphs or are consecutive
+ */
+function groupVerses(verseParagraphs, paragraphVerses, paragraphs) {
+  const groups = []
+  const processedVerses = new Set()
+  
+  // Sort verses
+  const allVerses = [...verseParagraphs.keys()].sort((a, b) => a - b)
+  
+  for (const verse of allVerses) {
+    if (processedVerses.has(verse)) continue
+    
+    // Find all paragraphs for this verse
+    const parasForVerse = verseParagraphs.get(verse)
+    
+    // Find all verses that share these paragraphs
+    const relatedVerses = new Set([verse])
+    for (const paraIdx of parasForVerse) {
+      const versesInPara = paragraphVerses.get(paraIdx)
+      if (versesInPara) {
+        for (const v of versesInPara) {
+          relatedVerses.add(v)
+        }
+      }
+    }
+    
+    // Also add consecutive verses
+    const sortedRelated = [...relatedVerses].sort((a, b) => a - b)
+    const minV = sortedRelated[0]
+    const maxV = sortedRelated[sortedRelated.length - 1]
+    for (let v = minV; v <= maxV; v++) {
+      if (verseParagraphs.has(v)) {
+        relatedVerses.add(v)
+      }
+    }
+    
+    // Collect all paragraphs for this group
+    const allParas = new Set()
+    for (const v of relatedVerses) {
+      const paras = verseParagraphs.get(v)
+      if (paras) {
+        for (const p of paras) {
+          allParas.add(p)
+        }
+      }
+    }
+    
+    // Mark all as processed
+    for (const v of relatedVerses) {
+      processedVerses.add(v)
+    }
+    
+    const sortedVerses = [...relatedVerses].sort((a, b) => a - b)
+    const sortedParaIndices = [...allParas].sort((a, b) => a - b)
+    
+    groups.push({
+      verses: sortedVerses,
+      paragraphIndices: sortedParaIndices,
+      text: sortedParaIndices.map(i => paragraphs[i]).join('\n\n')
+    })
+  }
+  
+  return groups
 }
 
 /**

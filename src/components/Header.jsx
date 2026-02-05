@@ -14,8 +14,8 @@ function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, bookma
         <div className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo/Title */}
           <div className="flex-shrink-0">
-            <h1 className="heading-text text-base sm:text-xl font-bold">Consensus</h1>
-            <p className="text-[10px] sm:text-xs text-blue-200 hidden sm:block">Bible Study Tool</p>
+            <h1 className="heading-text text-base sm:text-xl font-bold">Heritage</h1>
+            <p className="text-[10px] sm:text-xs text-blue-200 hidden sm:block">Study Bible</p>
           </div>
 
           {/* Search Bar */}

@@ -1,4 +1,4 @@
-# Consensus - Bible Study Tool
+# Heritage Study Bible
 
 A modern, responsive web application for reading and studying the Bible with commentary support.
 
