@@ -7,11 +7,12 @@ import BookmarkManager from './components/BookmarkManager'
 import SearchResults from './components/SearchResults'
 import BottomNav from './components/BottomNav'
 import TranscriptViewer from './components/TranscriptViewer'
+import ResourcesModal from './components/ResourcesModal'
+import ResourcePage from './components/ResourcePage'
 import { useBookmarks } from './hooks/useBookmarks'
 import bibleData from './data/bible-web.json'
 import { bibleBooks } from './data/bible-books.js'
-import commentaryData from './data/ortlund-commentary.json'
-import { authors as initialAuthors, loadOrtlundCommentaries, getCommentaryForVerse as getCommentaryFromAuthor, hasAnyCommentary } from './data/authors'
+import { authors as initialAuthors, loadCommentaryForBook, getAuthorsForBook, getCommentaryForVerse as getCommentaryFromAuthor, hasAnyCommentary } from './data/authors'
 
 // Helper to convert book name to URL slug
 function bookToSlug(bookName) {
@@ -37,6 +38,7 @@ function BibleStudyApp() {
   const [currentBook, setCurrentBook] = useState(urlBook || 'Genesis')
   const [currentChapter, setCurrentChapter] = useState(urlChapter || 1)
   const [showBookmarkManager, setShowBookmarkManager] = useState(false)
+  const [showResources, setShowResources] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [toast, setToast] = useState(null)
@@ -47,9 +49,10 @@ function BibleStudyApp() {
   const bibleContainerRef = useRef(null)
   
   // Author/Work state
-  const [authorsData, setAuthorsData] = useState(() => loadOrtlundCommentaries(commentaryData))
-  const [selectedAuthor, setSelectedAuthor] = useState('gavin-ortlund')
-  const [selectedWork, setSelectedWork] = useState('ortlund-every-chapter')
+  const [authorsData, setAuthorsData] = useState(initialAuthors)
+  const [selectedAuthor, setSelectedAuthor] = useState(null)
+  const [selectedWork, setSelectedWork] = useState(null)
+  const [commentaryLoading, setCommentaryLoading] = useState(false)
   
   // Text size setting (persisted in localStorage)
   const [textSize, setTextSize] = useState(() => {
@@ -59,6 +62,53 @@ function BibleStudyApp() {
   useEffect(() => {
     try { localStorage.setItem('heritage-text-size', textSize) } catch {}
   }, [textSize])
+
+  // Lazy-load commentary data when book changes
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      // Check if any works for this book need loading
+      const needsLoad = authorsData.some(a =>
+        a.works.some(w => w.book === currentBook && !w.loaded && w.dataPath)
+      )
+      if (!needsLoad) {
+        // Still auto-select an author for this book
+        autoSelectAuthor(currentBook)
+        return
+      }
+      setCommentaryLoading(true)
+      const updated = await loadCommentaryForBook(currentBook, authorsData)
+      if (!cancelled) {
+        setAuthorsData(updated)
+        setCommentaryLoading(false)
+        autoSelectAuthor(currentBook, updated)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [currentBook])
+
+  // Auto-select the best author/work for the current book
+  const autoSelectAuthor = (book, data) => {
+    const d = data || authorsData
+    const bookAuthors = getAuthorsForBook(book, d)
+    if (bookAuthors.length > 0) {
+      // Prefer the currently selected author if they have content for this book
+      const currentHasContent = bookAuthors.find(a => a.id === selectedAuthor)
+      if (!currentHasContent) {
+        const first = bookAuthors[0]
+        setSelectedAuthor(first.id)
+        const bookWork = first.works.find(w => w.book === book)
+        if (bookWork) setSelectedWork(bookWork.id)
+      } else {
+        // Make sure selectedWork matches the book
+        const bookWork = currentHasContent.works.find(w => w.book === book)
+        if (bookWork && bookWork.id !== selectedWork) {
+          setSelectedWork(bookWork.id)
+        }
+      }
+    }
+  }
   
   const { 
     bookmarks, addBookmark, removeBookmark, updateBookmark, isBookmarked,
@@ -105,20 +155,24 @@ function BibleStudyApp() {
     }))
   }, [])
 
-  // Get commentary for a specific verse or chapter (legacy for mobile modal)
+  // Get commentary for a specific verse or chapter (for any book with loaded commentary)
   const getCommentaryForVerse = (chapter, verse) => {
-    // Commentary only available for Revelation
-    if (currentBook !== 'Revelation') return null
-    // First try verse-specific, then fall back to chapter-level
-    return commentaryData.commentaries.find(c => 
-      c.verses && c.verses.some(v => v.chapter === chapter && v.verse === verse)
-    ) || commentaryData.commentaries.find(c => c.chapter === chapter && !c.verses)
+    // Search all loaded authors for commentary on this book/chapter/verse
+    for (const author of authorsData) {
+      for (const work of author.works) {
+        if (work.book !== currentBook || !work.loaded) continue
+        const found = work.commentaries.find(c =>
+          c.verses && c.verses.some(v => v.chapter === chapter && v.verse === verse)
+        ) || work.commentaries.find(c => c.chapter === chapter && !c.verses)
+        if (found) return found
+      }
+    }
+    return null
   }
 
-  // Check if verse has commentary (from any author) - only Revelation has commentary
+  // Check if verse has commentary from any loaded author
   const hasCommentary = (chapter, verse) => {
-    if (currentBook !== 'Revelation') return false
-    return hasAnyCommentary(chapter, verse, authorsData)
+    return hasAnyCommentary(currentBook, chapter, verse, authorsData)
   }
 
   // Get current book data from Bible
@@ -225,15 +279,22 @@ function BibleStudyApp() {
       })
     })
 
-    // Search commentary (Revelation only)
-    commentaryData.commentaries.forEach(c => {
-      if (c.text.toLowerCase().includes(lowerQuery)) {
-        results.commentaries.push({
-          ...c,
-          book: 'Revelation',
-          snippet: getSnippet(c.text, lowerQuery)
+    // Search commentary across all loaded authors/works
+    authorsData.forEach(author => {
+      author.works.forEach(work => {
+        if (!work.loaded && work.commentaries.length === 0) return
+        work.commentaries.forEach(c => {
+          if (c.text.toLowerCase().includes(lowerQuery)) {
+            results.commentaries.push({
+              ...c,
+              book: work.book,
+              authorName: author.name,
+              workTitle: work.title,
+              snippet: getSnippet(c.text, lowerQuery)
+            })
+          }
         })
-      }
+      })
     })
 
     setSearchResults(results)
@@ -288,11 +349,11 @@ function BibleStudyApp() {
     setSelectedAuthor(authorId)
     const author = authorsData.find(a => a.id === authorId)
     if (author && author.works.length > 0) {
-      // Find a work that has commentary for current chapter, or default to first
-      const workWithCommentary = author.works.find(w =>
-        w.commentaries.some(c => c.chapter === currentChapter)
-      )
-      setSelectedWork(workWithCommentary?.id || author.works[0].id)
+      // Prefer a work for the current book with commentary for current chapter
+      const workForBook = author.works.find(w =>
+        w.book === currentBook && w.commentaries.some(c => c.chapter === currentChapter)
+      ) || author.works.find(w => w.book === currentBook) || author.works[0]
+      setSelectedWork(workForBook.id)
     }
   }
 
@@ -309,6 +370,7 @@ function BibleStudyApp() {
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           onBookmarkClick={() => setShowBookmarkManager(true)}
+          onResourcesClick={() => setShowResources(true)}
           bookmarkCount={bookmarks.length}
           isSidebarOpen={isLargeScreen && isSidebarOpen}
           textSize={textSize}
@@ -363,21 +425,21 @@ function BibleStudyApp() {
                     />
                   )}
 
-                  {/* Toggle Sidebar Button */}
+                  {/* Toggle Sidebar Button (desktop only — phones use verse tap) */}
                   {!isSidebarOpen && (
                     <button 
                       onClick={() => setIsSidebarOpen(true)}
-                      className="fixed bottom-20 right-4 sm:right-6 p-3 bg-secondary text-white rounded-full shadow-lg hover:bg-amber-600 transition-all duration-300 z-40"
+                      className="hidden lg:block fixed bottom-20 right-4 sm:right-6 p-3 bg-secondary text-white rounded-full shadow-lg hover:bg-amber-600 transition-all duration-300 z-40"
                       title="Show Commentary"
                     >
                       📖
                     </button>
                   )}
 
-                  {/* Back to Top */}
+                  {/* Back to Top (desktop only) */}
                   <button 
                     onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className={`fixed bottom-20 p-3 bg-primary text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-300 ${
+                    className={`hidden lg:block fixed bottom-20 p-3 bg-primary text-white rounded-full shadow-lg hover:bg-blue-700 transition-all duration-300 ${
                       isLargeScreen && isSidebarOpen ? 'right-[26rem] xl:right-[36rem] 2xl:right-[44rem]' : isSidebarOpen ? 'right-4 sm:right-6' : 'left-4 sm:left-6'
                     }`}
                     title="Back to top"
@@ -399,6 +461,7 @@ function BibleStudyApp() {
               onAuthorChange={handleAuthorChange}
               onWorkChange={handleWorkChange}
               chapter={currentChapter}
+              loading={commentaryLoading}
               versePositions={versePositions}
               selectedVerse={selectedVerse}
               isBookmarked={(ch, v) => isBookmarked(currentBook, ch, v)}
@@ -448,12 +511,19 @@ function BibleStudyApp() {
               deleteNote(book, chapter, verse)
               showToast('Note deleted')
             }}
-            onNavigateToCommentary={(chapter, commentaryId) => {
-              setCurrentBook('Revelation')
+            onNavigateToCommentary={(chapter, commentaryId, book) => {
+              if (book) setCurrentBook(book)
               setCurrentChapter(chapter)
               setShowBookmarkManager(false)
               setIsSidebarOpen(true)
             }}
+          />
+        )}
+
+        {/* Resources Modal */}
+        {showResources && (
+          <ResourcesModal
+            onClose={() => setShowResources(false)}
           />
         )}
 
@@ -489,6 +559,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/transcript/:transcriptId" element={<TranscriptViewer />} />
+        <Route path="/resources/:categoryId" element={<ResourcePage />} />
         <Route path="/:bookSlug/:chapterNum" element={<BibleStudyApp />} />
         <Route path="/:bookSlug" element={<BibleStudyApp />} />
         <Route path="/" element={<Navigate to="/genesis/1" replace />} />

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, bookmarkCount, isSidebarOpen = false, textSize = 'medium', onTextSizeChange }) {
+function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, onResourcesClick, bookmarkCount, isSidebarOpen = false, textSize = 'medium', onTextSizeChange }) {
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const settingsRef = useRef(null)
@@ -72,6 +72,15 @@ function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, bookma
                 {bookmarkCount}
               </span>
             )}
+          </button>
+
+          {/* Resources Button */}
+          <button
+            onClick={onResourcesClick}
+            className="flex items-center px-2 sm:px-3 py-1.5 sm:py-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors flex-shrink-0"
+            title="Resources"
+          >
+            <span className="text-sm sm:text-base">📚</span>
           </button>
 
           {/* Settings Button */}

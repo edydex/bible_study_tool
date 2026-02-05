@@ -1,22 +1,64 @@
-// Commentary data with multiple authors and works
-// This structure supports multiple commentators, each with multiple works
+// Commentary authors and works registry
+// Each work has a dataPath for lazy-loading from public/data/commentary/<author>/<book>.json
+// Works are loaded on demand when the user navigates to the relevant book
+
+// Calvin's commentary books (all parsed from CCEL ThML XML)
+const calvinBooks = [
+  'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy',
+  'Joshua', 'Psalms', 'Isaiah', 'Jeremiah', 'Lamentations',
+  'Ezekiel', 'Daniel', 'Hosea', 'Joel', 'Amos', 'Obadiah', 'Jonah',
+  'Micah', 'Nahum', 'Habakkuk', 'Zephaniah', 'Haggai', 'Zechariah', 'Malachi',
+  'Matthew', 'Mark', 'Luke', 'John', 'Acts', 'Romans',
+  '1 Corinthians', '2 Corinthians', 'Galatians', 'Ephesians',
+  'Philippians', 'Colossians', '1 Thessalonians', '2 Thessalonians',
+  '1 Timothy', '2 Timothy', 'Titus', 'Philemon',
+  'Hebrews', 'James', '1 Peter', '2 Peter', '1 John', 'Jude'
+]
+
+const calvinWorks = calvinBooks.map(book => {
+  const slug = book.toLowerCase().replace(/\s+/g, '-')
+  return {
+    id: `calvin-${slug}`,
+    title: `Commentary on ${book}`,
+    book,
+    type: 'Written Commentary',
+    year: '1540s-1560s',
+    dataPath: `/data/commentary/calvin/${slug}.json`,
+    source: 'CCEL (Public Domain)',
+    sourceUrl: 'https://ccel.org/ccel/calvin',
+    loaded: false,
+    introduction: [],
+    commentaries: []
+  }
+})
 
 export const authors = [
+  {
+    id: 'john-calvin',
+    name: 'John Calvin',
+    bio: 'French-Swiss Reformer (1509–1564). His verse-by-verse commentaries cover nearly every book of the Bible and remain foundational works of Protestant theology.',
+    bundled: true,
+    works: calvinWorks
+  },
   {
     id: 'gavin-ortlund',
     name: 'Gavin Ortlund',
     bio: 'Pastor and theologian, author of theological works and host of Truth Unites YouTube channel.',
+    bundled: true,
     works: [
       {
         id: 'ortlund-every-chapter',
         title: 'Explaining Every Chapter of Revelation',
+        book: 'Revelation',
         type: 'Video Commentary',
-        timestamp: '3:45:00',
         year: 2024,
-        originalUrl: null, // Will be populated from JSON metadata
-        audioUrl: null, // Will be populated from JSON metadata
-        introduction: [], // Will be populated from JSON
-        commentaries: [] // Will be populated from JSON
+        dataPath: '/data/commentary/ortlund/revelation.json',
+        loaded: false,
+        originalUrl: null,
+        audioUrl: null,
+        transcriptUrl: null,
+        introduction: [],
+        commentaries: []
       }
     ]
   },
@@ -24,12 +66,16 @@ export const authors = [
     id: 'john-macarthur',
     name: 'John MacArthur',
     bio: 'Pastor of Grace Community Church and author of the MacArthur Study Bible.',
+    bundled: false, // Sample data only
     works: [
       {
         id: 'macarthur-revelation-1',
         title: 'Because the Time Is Near',
+        book: 'Revelation',
         type: 'Book',
         year: 2007,
+        loaded: true, // Hardcoded data
+        introduction: [],
         commentaries: [
           {
             id: 'mac_1_1_3',
@@ -94,8 +140,11 @@ export const authors = [
       {
         id: 'macarthur-sermons',
         title: 'Revelation Sermon Series',
+        book: 'Revelation',
         type: 'Sermon Series',
         year: 2019,
+        loaded: true,
+        introduction: [],
         commentaries: [
           {
             id: 'mac_ser_1_9_20',
@@ -144,12 +193,16 @@ export const authors = [
     id: 'rc-sproul',
     name: 'R.C. Sproul',
     bio: 'Founder of Ligonier Ministries and author of numerous theological works.',
+    bundled: false,
     works: [
       {
         id: 'sproul-last-days',
         title: 'The Last Days According to Jesus',
+        book: 'Revelation',
         type: 'Book',
         year: 1998,
+        loaded: true,
+        introduction: [],
         commentaries: [
           {
             id: 'sproul_1_1_3',
@@ -196,43 +249,47 @@ export const authors = [
   }
 ]
 
-// Function to load Ortlund's commentaries from the JSON file
-export function loadOrtlundCommentaries(commentaryData) {
-  const ortlund = authors.find(a => a.id === 'gavin-ortlund')
-  if (ortlund && ortlund.works[0]) {
-    // Load metadata
-    if (commentaryData.metadata) {
-      ortlund.works[0].originalUrl = commentaryData.metadata.originalUrl
-      ortlund.works[0].audioUrl = commentaryData.metadata.audioUrl
-      ortlund.works[0].transcriptUrl = commentaryData.metadata.transcriptUrl
-    }
-    // Load introduction sections
-    ortlund.works[0].introduction = commentaryData.introduction || []
-    // Load chapter commentaries
-    ortlund.works[0].commentaries = commentaryData.commentaries || []
-  }
-  return authors
+/**
+ * Get all authors that have works covering a specific book
+ */
+export function getAuthorsForBook(bookName, authorsData) {
+  return authorsData.filter(author =>
+    author.works.some(w => w.book === bookName)
+  )
 }
 
-// Get all commentaries for a specific chapter from a specific author/work
-export function getCommentariesForChapter(authorId, workId, chapter) {
-  const author = authors.find(a => a.id === authorId)
+/**
+ * Get works for a specific author that cover a specific book
+ */
+export function getWorksForBook(authorId, bookName, authorsData) {
+  const author = authorsData.find(a => a.id === authorId)
   if (!author) return []
-  
+  return author.works.filter(w => w.book === bookName)
+}
+
+/**
+ * Get all commentaries for a specific chapter from a specific author/work
+ */
+export function getCommentariesForChapter(authorId, workId, chapter, authorsData) {
+  const author = authorsData.find(a => a.id === authorId)
+  if (!author) return []
+
   const work = author.works.find(w => w.id === workId)
   if (!work) return []
-  
-  return work.commentaries.filter(c => c.chapter === chapter && c.verses)
+
+  return work.commentaries.filter(c => c.chapter === chapter)
 }
 
-// Check if a verse has commentary from any author
-// Now also checks for chapter-level commentaries (where verses is null)
-export function hasAnyCommentary(chapter, verse, authorsData) {
+/**
+ * Check if a verse has commentary from ANY loaded author
+ */
+export function hasAnyCommentary(bookName, chapter, verse, authorsData) {
   return authorsData.some(author =>
     author.works.some(work =>
+      work.book === bookName &&
       work.commentaries.some(c =>
         c.chapter === chapter && (
-          !c.verses || // Chapter-level commentary
+          !c.verses ||
           c.verses.some(v => v.chapter === chapter && v.verse === verse)
         )
       )
@@ -240,15 +297,71 @@ export function hasAnyCommentary(chapter, verse, authorsData) {
   )
 }
 
-// Get commentary for a specific verse from current author/work
+/**
+ * Get commentary for a specific verse from a specific author/work
+ */
 export function getCommentaryForVerse(authorId, workId, chapter, verse, authorsData) {
   const author = authorsData.find(a => a.id === authorId)
   if (!author) return null
-  
+
   const work = author.works.find(w => w.id === workId)
   if (!work) return null
-  
+
   return work.commentaries.find(c =>
     c.verses && c.verses.some(v => v.chapter === chapter && v.verse === verse)
   )
+}
+
+/**
+ * Load commentary data for works that cover the given book.
+ * Returns a new authors array with the loaded data merged in.
+ * Only fetches works that haven't been loaded yet.
+ */
+export async function loadCommentaryForBook(bookName, authorsData) {
+  const worksToLoad = []
+
+  authorsData.forEach(author => {
+    author.works.forEach(work => {
+      if (work.book === bookName && !work.loaded && work.dataPath) {
+        worksToLoad.push({ authorId: author.id, workId: work.id, dataPath: work.dataPath })
+      }
+    })
+  })
+
+  if (worksToLoad.length === 0) return authorsData
+
+  const results = await Promise.all(
+    worksToLoad.map(async ({ authorId, workId, dataPath }) => {
+      try {
+        const resp = await fetch(dataPath)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const data = await resp.json()
+        return { authorId, workId, data, error: null }
+      } catch (err) {
+        console.warn(`Failed to load commentary: ${dataPath}`, err)
+        return { authorId, workId, data: null, error: err }
+      }
+    })
+  )
+
+  // Deep clone authors array and merge loaded data
+  const updated = authorsData.map(author => ({
+    ...author,
+    works: author.works.map(work => {
+      const result = results.find(r => r.authorId === author.id && r.workId === work.id)
+      if (!result || !result.data) return work
+
+      return {
+        ...work,
+        loaded: true,
+        commentaries: result.data.commentaries || [],
+        introduction: result.data.introduction || [],
+        ...(result.data.metadata?.originalUrl ? { originalUrl: result.data.metadata.originalUrl } : {}),
+        ...(result.data.metadata?.audioUrl ? { audioUrl: result.data.metadata.audioUrl } : {}),
+        ...(result.data.metadata?.transcriptUrl ? { transcriptUrl: result.data.metadata.transcriptUrl } : {})
+      }
+    })
+  }))
+
+  return updated
 }

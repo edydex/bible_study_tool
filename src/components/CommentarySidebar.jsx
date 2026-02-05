@@ -10,6 +10,7 @@ function CommentarySidebar({
   onAuthorChange,
   onWorkChange,
   onClose,
+  loading = false,
   selectedVerse,
   isBookmarked,
   onBookmarkVerse,
@@ -36,21 +37,18 @@ function CommentarySidebar({
   const authorWorks = currentAuthorData?.works || []
   const currentWorkData = authorWorks.find(w => w.id === selectedWork)
   
-  // Only show commentary for Revelation (all current commentary is for Revelation)
-  const isRevelation = bookName === 'Revelation'
-  
-  const worksWithCommentary = isRevelation ? authorWorks.filter(w => 
-    w.commentaries.some(c => c.chapter === chapter)
-  ) : []
+  // Filter works that have commentary for the current book and chapter
+  const worksWithCommentary = authorWorks.filter(w => 
+    w.book === bookName && w.commentaries.some(c => c.chapter === chapter)
+  )
 
-  // Get commentaries for current chapter from current work (only for Revelation)
-  // Include both chapter-level commentaries (verses === null) and verse-specific ones
-  const chapterCommentaries = (isRevelation && currentWorkData?.commentaries.filter(c => 
+  // Get commentaries for current chapter from current work
+  const chapterCommentaries = (currentWorkData?.book === bookName && currentWorkData?.commentaries.filter(c => 
     c.chapter === chapter
   )) || []
 
-  // Get introduction sections (only for Revelation)
-  const introductionSections = (isRevelation && currentWorkData?.introduction) || []
+  // Get introduction sections
+  const introductionSections = (currentWorkData?.book === bookName && currentWorkData?.introduction) || []
   const hasIntroduction = introductionSections.length > 0
 
   // Get work URLs
@@ -71,10 +69,14 @@ function CommentarySidebar({
     }
   }, [selectedVerse, notes, bookName])
 
-  // Filter authors based on search
-  const filteredAuthors = authors.filter(a => 
-    a.name.toLowerCase().includes(authorSearchQuery.toLowerCase())
-  )
+  // Filter authors based on search, prioritize those with content for this book
+  const filteredAuthors = authors
+    .filter(a => a.name.toLowerCase().includes(authorSearchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const aHasBook = a.works.some(w => w.book === bookName) ? 0 : 1
+      const bHasBook = b.works.some(w => w.book === bookName) ? 0 : 1
+      return aHasBook - bHasBook
+    })
 
   // Auto-expand commentary for selected verse
   useEffect(() => {
@@ -300,7 +302,12 @@ function CommentarySidebar({
                       }`}
                     >
                       <div className="font-medium text-sm">{author.name}</div>
-                      <div className="text-xs text-gray-500">{author.works.length} work(s)</div>
+                      <div className="text-xs text-gray-500">
+                        {author.works.some(w => w.book === bookName)
+                          ? `${author.works.filter(w => w.book === bookName).length} work(s) on ${bookName}`
+                          : <span className="text-gray-400 italic">No {bookName} commentary</span>
+                        }
+                      </div>
                     </button>
                   ))}
                   {filteredAuthors.length === 0 && (
@@ -526,17 +533,23 @@ function CommentarySidebar({
             </div>
           )}
 
-          {chapterCommentaries.length === 0 ? (
+          {loading ? (
+            <div className="p-6 text-center text-gray-500">
+              <p className="text-4xl mb-3 animate-pulse">📖</p>
+              <p className="text-sm">Loading commentary for <strong>{bookName}</strong>...</p>
+            </div>
+          ) : chapterCommentaries.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
               <p className="text-4xl mb-3">📖</p>
-              <p className="text-sm">No commentary available for <strong>{bookName} {chapter}</strong> from <strong>{currentAuthorData?.name}</strong>.</p>
-              <p className="text-xs text-gray-400 mt-2">Commentary is currently only available for Revelation.</p>
-              <button 
-                onClick={() => setShowAuthorSearch(true)}
-                className="mt-3 text-accent hover:text-teal-700 text-sm font-medium"
-              >
-                Try another author →
-              </button>
+              <p className="text-sm">No commentary available for <strong>{bookName} {chapter}</strong>{currentAuthorData ? <> from <strong>{currentAuthorData.name}</strong></> : null}.</p>
+              {authors.some(a => a.works.some(w => w.book === bookName && w.id !== selectedWork)) && (
+                <button 
+                  onClick={() => setShowAuthorSearch(true)}
+                  className="mt-3 text-accent hover:text-teal-700 text-sm font-medium"
+                >
+                  Try another author →
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
