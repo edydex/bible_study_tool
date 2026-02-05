@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, bookmarkCount }) {
+function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, bookmarkCount, isSidebarOpen = false }) {
   const [isSearchFocused, setIsSearchFocused] = useState(false)
 
   const handleSubmit = (e) => {
@@ -10,16 +10,18 @@ function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, bookma
 
   return (
     <header className="bg-primary text-white shadow-lg sticky top-0 z-40">
-      <div className="container mx-auto px-3 sm:px-4 py-2 sm:py-4 max-w-4xl">
-        <div className="flex items-center justify-between gap-2 sm:gap-4">
-          {/* Logo/Title */}
+      <div className={`px-4 sm:px-6 h-14 flex items-center transition-all duration-300 ${
+        isSidebarOpen ? 'lg:mr-[420px] xl:mr-[560px] 2xl:mr-[672px]' : ''
+      }`}>
+        <div className="flex items-center gap-3 sm:gap-4 w-full">
+          {/* Logo/Title - left aligned */}
           <div className="flex-shrink-0">
-            <h1 className="heading-text text-base sm:text-xl font-bold">Heritage</h1>
+            <h1 className="heading-text text-base sm:text-xl font-bold leading-tight">Heritage</h1>
             <p className="text-[10px] sm:text-xs text-blue-200 hidden sm:block">Study Bible</p>
           </div>
 
-          {/* Search Bar */}
-          <form onSubmit={handleSubmit} className="flex-1 max-w-md min-w-0">
+          {/* Search Bar - fills available space */}
+          <form onSubmit={handleSubmit} className="flex-1 min-w-0 max-w-xl">
             <div className={`flex items-center bg-white/10 rounded-lg transition-all ${isSearchFocused ? 'ring-2 ring-white/50' : ''}`}>
               <input
                 type="text"

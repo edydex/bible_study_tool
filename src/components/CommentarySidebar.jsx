@@ -180,20 +180,20 @@ function CommentarySidebar({
 
   return (
     <>
-      {/* Backdrop - visible on mobile, clickable on all sizes */}
+      {/* Backdrop - dark overlay on mobile only */}
       <div 
-        className="fixed inset-0 bg-black/30 lg:bg-transparent z-40 cursor-pointer"
+        className="fixed inset-0 bg-black/30 z-30 lg:hidden"
         onClick={onClose}
       />
 
       {/* Sidebar - full screen on mobile, wider on larger screens */}
       <aside 
-        className="fixed top-0 right-0 bottom-0 w-full lg:w-[420px] xl:w-[560px] 2xl:w-[672px] flex flex-col bg-white border-l border-gray-200 shadow-lg z-50 lg:z-30 transform transition-transform duration-300 ease-out animate-slide-in-right"
+        className="fixed top-0 right-0 bottom-0 w-full lg:w-[420px] xl:w-[560px] 2xl:w-[672px] flex flex-col bg-white border-l border-gray-200 shadow-lg z-50 lg:z-40 transform transition-transform duration-300 ease-out animate-slide-in-right"
         ref={sidebarRef}
       >
-        {/* Top Bar with Close */}
-        <div className="flex items-center justify-between px-4 py-3 bg-primary text-white">
-          <h2 className="font-semibold text-lg">Commentary</h2>
+        {/* Top Bar with Close - height matches Header */}
+        <div className="flex items-center justify-between px-4 h-14 bg-primary text-white">
+          <h2 className="font-semibold text-lg leading-tight">Commentary</h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-white/20 rounded-lg transition-colors"

@@ -301,6 +301,7 @@ function BibleStudyApp() {
           setSearchQuery={setSearchQuery}
           onBookmarkClick={() => setShowBookmarkManager(true)}
           bookmarkCount={bookmarks.length}
+          isSidebarOpen={isLargeScreen && isSidebarOpen}
         />
         
         <div className="flex">
