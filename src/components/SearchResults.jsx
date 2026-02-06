@@ -72,8 +72,7 @@ function SearchResults({ results, query, onVerseClick, onCommentaryClick, onClos
           {/* Commentary Results */}
           {results.commentaries.length > 0 && (
             <div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <span>💬</span>
+              <h3 className="text-lg font-semibold text-gray-700 mb-3">
                 Commentary ({results.commentaries.length})
               </h3>
               <div className="space-y-2">

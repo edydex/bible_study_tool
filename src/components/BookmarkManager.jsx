@@ -366,7 +366,6 @@ function BookmarkItem({ bookmark, onNavigate, onDelete, onDeleteCommentary, onDe
             /* Commentary Bookmark Display */
             <>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-blue-500">💬</span>
                 <span className="font-medium text-primary">
                   {compact ? `${bookmark.reference}` : `${bookmark.reference}`}
                 </span>
@@ -400,7 +399,7 @@ function BookmarkItem({ bookmark, onNavigate, onDelete, onDeleteCommentary, onDe
                 </span>
                 <span className="text-xs text-gray-400">({formatDate(bookmark.dateCreated)})</span>
                 {bookmark.hasCommentary && (
-                  <span className="text-xs bg-secondary/20 text-amber-700 px-1.5 py-0.5 rounded">💬</span>
+                  <span className="text-xs bg-secondary/20 text-amber-700 px-1.5 py-0.5 rounded">Has commentary</span>
                 )}
               </div>
               <p className="text-sm text-gray-600 truncate">{bookmark.verseText}...</p>

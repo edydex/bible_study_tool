@@ -1,5 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 
+// Detect the leading verse-quote in Calvin's commentary text and return [quote, rest]
+// Calvin typically starts with "1. In the beginning." then commentary follows.
+const CALVIN_QUOTE_RE1 = /^(\s*\d+\.?\s+\S+(?:\s+\S+){0,12}?(?:\betc\b\.?\s*(?:[\u2014-]\s*)?|[.]))\s+/
+const CALVIN_QUOTE_RE2 = /^(\s*\d+\.?\s+\S+(?:\s+\S+){1,8}?)\s+(?=[A-Z][a-z])/
+function splitCalvinQuote(text) {
+  const m1 = text.match(CALVIN_QUOTE_RE1)
+  if (m1) return [m1[1].trim(), text.substring(m1[0].length)]
+  const m2 = text.match(CALVIN_QUOTE_RE2)
+  if (m2) return [m2[1].trim(), text.substring(m2[0].length)]
+  return [null, text]
+}
+
 function CommentarySidebar({ 
   chapter, 
   bookName = 'Revelation',
@@ -583,7 +595,14 @@ function CommentarySidebar({
                         </div>
                         {!isExpanded && (
                           <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                            {commentary.text.substring(0, 120)}...
+                            {selectedAuthor === 'john-calvin' ? (() => {
+                              const [quote, rest] = splitCalvinQuote(commentary.text)
+                              if (quote) {
+                                const preview = rest.substring(0, 120 - quote.length)
+                                return <><strong className="text-gray-800">{quote}</strong>{' '}{preview}...</>
+                              }
+                              return <>{commentary.text.substring(0, 120)}...</>
+                            })() : <>{commentary.text.substring(0, 120)}...</>}
                           </p>
                         )}
                       </button>
@@ -609,11 +628,24 @@ function CommentarySidebar({
                     {isExpanded && (
                       <div className="px-3 pb-3">
                         <div className="border-t border-blue-200 pt-3">
-                          {commentary.text.split('\n\n').map((paragraph, pIndex) => (
-                            <p key={pIndex} className="text-gray-700 text-sm leading-relaxed mb-2 last:mb-0">
-                              {paragraph}
-                            </p>
-                          ))}
+                          {commentary.text.split('\n\n').map((paragraph, pIndex) => {
+                            // For Calvin, bold the leading verse quote in the first paragraph
+                            if (pIndex === 0 && selectedAuthor === 'john-calvin') {
+                              const [quote, rest] = splitCalvinQuote(paragraph)
+                              if (quote) {
+                                return (
+                                  <p key={pIndex} className="text-gray-700 text-sm leading-relaxed mb-2 last:mb-0">
+                                    <strong className="text-gray-900">{quote}</strong>{' '}{rest}
+                                  </p>
+                                )
+                              }
+                            }
+                            return (
+                              <p key={pIndex} className="text-gray-700 text-sm leading-relaxed mb-2 last:mb-0">
+                                {paragraph}
+                              </p>
+                            )
+                          })}
                         </div>
                       </div>
                     )}

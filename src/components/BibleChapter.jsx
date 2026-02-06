@@ -1,4 +1,15 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
+
+// Render verse text, converting <b>...</b> tags to bold spans (used in Psalms headers etc.)
+function renderVerseText(text) {
+  if (!text.includes('<b>')) return text
+  const parts = text.split(/(<b>.*?<\/b>)/g)
+  return parts.map((part, i) => {
+    const m = part.match(/^<b>(.*?)<\/b>$/)
+    if (m) return <strong key={i} className="font-bold">{m[1]}</strong>
+    return part
+  })
+}
 
 function BibleChapter({ chapter, bookName = 'Revelation', hasCommentary, onVerseClick, isBookmarked, onBookmarkToggle, onVersePosition, textSize = 'medium' }) {
   const containerRef = useRef(null)
@@ -79,12 +90,7 @@ function BibleChapter({ chapter, bookName = 'Revelation', hasCommentary, onVerse
                 }`}
                 onClick={() => onVerseClick(chapter.number, verse.number, verse.text)}
               >
-                {verse.text}
-                {hasComment && (
-                  <span className="inline-block ml-1.5 sm:ml-2 text-secondary opacity-60 group-hover:opacity-100 transition-opacity text-sm" title="View commentary">
-                    💬
-                  </span>
-                )}
+                {renderVerseText(verse.text)}
               </p>
 
               {/* Bookmark Button */}

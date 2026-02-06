@@ -5,7 +5,7 @@ A modern, responsive web application for reading and studying the Bible with com
 ## Features
 
 - 📖 **Complete Bible** - All 66 books of the Bible (World English Bible translation - public domain)
-- 💬 **Commentary Support** - Currently includes Gavin Ortlund's commentary on Revelation
+- **Commentary Support** - Includes John Calvin's commentaries (48 books) and Gavin Ortlund on Revelation
 - 🔍 **Full-text Search** - Search across all Bible verses and available commentary
 - ⭐ **Bookmarks** - Save verses and commentary with personal notes
 - 📱 **Mobile-first Design** - Responsive interface with touch-friendly navigation
