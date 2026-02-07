@@ -10,14 +10,14 @@ import TranscriptViewer from './components/TranscriptViewer'
 import ResourcesModal from './components/ResourcesModal'
 import ResourcePage from './components/ResourcePage'
 import { useBookmarks } from './hooks/useBookmarks'
-import fallbackBibleData from './data/bible-web.json'
+import fallbackBibleData from './data/bible-lsv.json'
 import { bibleBooks } from './data/bible-books.js'
 import { translations, DEFAULT_TRANSLATION, loadTranslation, seedTranslationCache } from './data/translations'
 import { authors as initialAuthors, loadCommentaryForBook, getAuthorsForBook, getCommentaryForVerse as getCommentaryFromAuthor, hasAnyCommentary } from './data/authors'
 import { parseBibleReference } from './utils/parseBibleReference'
 
-// Seed the WEB translation into the cache since it's bundled
-seedTranslationCache('WEB', fallbackBibleData)
+// Seed the LSV translation into the cache since it's bundled
+seedTranslationCache('LSV', fallbackBibleData)
 
 // Helper to convert book name to URL slug
 function bookToSlug(bookName) {
@@ -57,7 +57,7 @@ function BibleStudyApp() {
   const [translationId, setTranslationId] = useState(() => {
     try { return localStorage.getItem('heritage-translation') || DEFAULT_TRANSLATION } catch { return DEFAULT_TRANSLATION }
   })
-  const [bibleData, setBibleData] = useState(fallbackBibleData) // Start with bundled WEB
+  const [bibleData, setBibleData] = useState(fallbackBibleData) // Start with bundled LSV
   const [translationLoading, setTranslationLoading] = useState(false)
 
   // Load translation data when translationId changes
@@ -72,7 +72,7 @@ function BibleStudyApp() {
         }
       } catch (err) {
         console.error('Failed to load translation:', err)
-        // Fall back to WEB
+        // Fall back to LSV
         if (!cancelled) {
           setBibleData(fallbackBibleData)
         }
