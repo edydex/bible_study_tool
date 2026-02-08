@@ -171,8 +171,9 @@ export function parseBibleReference(input) {
     if (!bookMeta) continue
 
     if (!refPart) {
-      // Just a book name → chapter 1
-      return { book: bookName, chapter: 1, verse: null }
+      // Just a book name with no chapter number → not a navigation reference
+      // (let it fall through to text search instead)
+      return null
     }
 
     // Parse chapter and optional verse

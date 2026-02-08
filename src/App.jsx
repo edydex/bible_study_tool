@@ -323,34 +323,48 @@ function BibleStudyApp() {
       return
     }
 
-    // Try to parse as a Bible reference (e.g. "Ps 23", "Rom 8:28")
-    const ref = parseBibleReference(query)
-    if (ref) {
-      setSearchQuery('')
-      setSearchResults(null)
-      if (ref.verse) {
-        navigateToVerse(ref.book, ref.chapter, ref.verse)
-      } else {
-        handleNavigate(ref.book, ref.chapter)
+    console.log('[Search] query received:', JSON.stringify(query), 'hasDigit:', /\d/.test(query))
+
+    // Only try to parse as a Bible reference if the query contains a number
+    // (e.g. "Ps 23", "Rom 8:28"). Plain words like "husband" always do text search.
+    if (/\d/.test(query)) {
+      const ref = parseBibleReference(query)
+      if (ref) {
+        setSearchQuery('')
+        setSearchResults(null)
+        if (ref.verse) {
+          navigateToVerse(ref.book, ref.chapter, ref.verse)
+        } else {
+          handleNavigate(ref.book, ref.chapter)
+        }
+        return
       }
-      return
     }
 
-    const results = { verses: [], commentaries: [] }
+    const results = { verses: [], commentaries: [], capped: false }
     const lowerQuery = query.toLowerCase()
+    const MAX_RESULTS = 200
 
     // Search Bible verses across all books
+    let done = false
     bibleData.books.forEach(book => {
+      if (done) return
       book.chapters.forEach(chapter => {
+        if (done) return
         chapter.verses.forEach(verse => {
+          if (done) return
           if (verse.text.toLowerCase().includes(lowerQuery)) {
             results.verses.push({
               book: book.name,
               chapter: chapter.number,
               verse: verse.number,
               text: verse.text,
-              hasCommentary: book.name === 'Revelation' && hasAnyCommentary(chapter.number, verse.number, authorsData)
+              hasCommentary: hasAnyCommentary(book.name, chapter.number, verse.number, authorsData)
             })
+            if (results.verses.length >= MAX_RESULTS) {
+              results.capped = true
+              done = true
+            }
           }
         })
       })

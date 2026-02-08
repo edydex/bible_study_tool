@@ -3,11 +3,16 @@ function SearchResults({ results, query, onVerseClick, onCommentaryClick, onClos
 
   const highlightText = (text, query) => {
     if (!query) return text
-    const regex = new RegExp(`(${query})`, 'gi')
-    const parts = text.split(regex)
-    return parts.map((part, i) => 
-      regex.test(part) ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 dark:text-white px-0.5">{part}</mark> : part
-    )
+    try {
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`(${escaped})`, 'gi')
+      const parts = text.split(regex)
+      return parts.map((part, i) => 
+        part.toLowerCase() === query.toLowerCase() ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 dark:text-white px-0.5">{part}</mark> : part
+      )
+    } catch {
+      return text
+    }
   }
 
   return (
@@ -18,7 +23,10 @@ function SearchResults({ results, query, onVerseClick, onCommentaryClick, onClos
             Search Results
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Found {totalResults} result{totalResults !== 1 ? 's' : ''} for "{query}"
+            {results.capped
+              ? <>Showing first {results.verses.length} verse results for "{query}" <span className="text-xs text-amber-600 dark:text-amber-400">(results limited — try a more specific search)</span></>
+              : <>Found {totalResults} result{totalResults !== 1 ? 's' : ''} for "{query}"</>
+            }
           </p>
         </div>
         <button 

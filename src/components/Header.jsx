@@ -25,9 +25,13 @@ function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, onReso
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  const inputRef = useRef(null)
+
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSearch(searchQuery)
+    // Use the actual DOM input value to avoid any browser autocomplete interference
+    const value = inputRef.current ? inputRef.current.value : searchQuery
+    onSearch(value)
   }
 
   // Close settings dropdown on outside click
@@ -61,7 +65,11 @@ function Header({ onSearch, searchQuery, setSearchQuery, onBookmarkClick, onReso
           <form onSubmit={handleSubmit} className="flex-1 min-w-0 max-w-xl">
             <div className={`flex items-center bg-white/10 rounded-lg transition-all ${isSearchFocused ? 'ring-2 ring-white/50' : ''}`}>
               <input
+                ref={inputRef}
                 type="text"
+                name="hsb-search"
+                autoComplete="off"
+                spellCheck="false"
                 placeholder={isSmallScreen ? 'Find...' : 'Search or go to verse...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
