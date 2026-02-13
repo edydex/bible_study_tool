@@ -18,6 +18,7 @@ import { bibleBooks } from './data/bible-books.js'
 import { translations, DEFAULT_TRANSLATION, loadTranslation, seedTranslationCache } from './data/translations'
 import { authors as initialAuthors, loadCommentaryForBook, getAuthorsForBook, getCommentaryForVerse as getCommentaryFromAuthor, hasAnyCommentary } from './data/authors'
 import { parseBibleReference } from './utils/parseBibleReference'
+import { searchBibleVerses, searchBookLibrary, searchCommentaryLibrary } from './utils/librarySearch'
 
 // Seed the LSV translation into the cache since it's bundled
 seedTranslationCache('LSV', fallbackBibleData)
@@ -55,6 +56,7 @@ function BibleStudyApp() {
   const [versePositions, setVersePositions] = useState({})
   const [selectedVerse, setSelectedVerse] = useState(null) // Track selected verse
   const bibleContainerRef = useRef(null)
+  const searchRequestRef = useRef(0)
   
   // Translation state
   const [translationId, setTranslationId] = useState(() => {
@@ -320,16 +322,19 @@ function BibleStudyApp() {
   }
 
   // Search functionality
-  const handleSearch = (query) => {
-    if (!query.trim()) {
+  const handleSearch = async (query) => {
+    const requestId = ++searchRequestRef.current
+    const trimmedQuery = query.trim()
+
+    if (!trimmedQuery) {
       setSearchResults(null)
       return
     }
 
     // Only try to parse as a Bible reference if the query contains a number
     // (e.g. "Ps 23", "Rom 8:28"). Plain words like "husband" always do text search.
-    if (/\d/.test(query)) {
-      const ref = parseBibleReference(query)
+    if (/\d/.test(trimmedQuery)) {
+      const ref = parseBibleReference(trimmedQuery)
       if (ref) {
         setSearchQuery('')
         setSearchResults(null)
@@ -342,65 +347,39 @@ function BibleStudyApp() {
       }
     }
 
-    const results = { verses: [], commentaries: [], capped: false }
-    const lowerQuery = query.toLowerCase()
-    const MAX_RESULTS = 200
-
-    // Search Bible verses across all books
-    let done = false
-    bibleData.books.forEach(book => {
-      if (done) return
-      book.chapters.forEach(chapter => {
-        if (done) return
-        chapter.verses.forEach(verse => {
-          if (done) return
-          if (verse.text.toLowerCase().includes(lowerQuery)) {
-            results.verses.push({
-              book: book.name,
-              chapter: chapter.number,
-              verse: verse.number,
-              text: verse.text,
-              hasCommentary: hasAnyCommentary(book.name, chapter.number, verse.number, authorsData)
-            })
-            if (results.verses.length >= MAX_RESULTS) {
-              results.capped = true
-              done = true
-            }
-          }
-        })
-      })
+    const bibleMatches = searchBibleVerses(bibleData, trimmedQuery, {
+      maxResults: 200,
+      hasCommentary: (book, chapter, verse) => hasAnyCommentary(book, chapter, verse, authorsData),
     })
+    let commentaryMatches = { items: [], capped: false }
+    let bookMatches = { books: [], capped: false }
+    try {
+      ;[commentaryMatches, bookMatches] = await Promise.all([
+        searchCommentaryLibrary(trimmedQuery, { maxResults: 200 }),
+        searchBookLibrary(trimmedQuery, { maxResults: 200, maxPerBook: 80 }),
+      ])
+    } catch (error) {
+      console.warn('Cross-library search failed', error)
+      if (commentaryMatches.items.length === 0) {
+        try {
+          commentaryMatches = await searchCommentaryLibrary(trimmedQuery, { maxResults: 200 })
+        } catch {
+          commentaryMatches = { items: [], capped: false }
+        }
+      }
+    }
 
-    // Search commentary across all loaded authors/works
-    authorsData.forEach(author => {
-      author.works.forEach(work => {
-        if (!work.loaded && work.commentaries.length === 0) return
-        work.commentaries.forEach(c => {
-          if (c.text.toLowerCase().includes(lowerQuery)) {
-            results.commentaries.push({
-              ...c,
-              book: work.book,
-              authorName: author.name,
-              workTitle: work.title,
-              snippet: getSnippet(c.text, lowerQuery)
-            })
-          }
-        })
-      })
+    if (requestId !== searchRequestRef.current) return
+
+    setSearchResults({
+      verses: bibleMatches.items,
+      versesCapped: bibleMatches.capped,
+      commentaries: commentaryMatches.items,
+      commentariesCapped: commentaryMatches.capped,
+      books: bookMatches.books,
+      booksCapped: bookMatches.capped,
+      sectionOrder: ['verses', 'commentaries', 'books'],
     })
-
-    setSearchResults(results)
-  }
-
-  // Get text snippet around search term
-  const getSnippet = (text, query) => {
-    const index = text.toLowerCase().indexOf(query)
-    const start = Math.max(0, index - 50)
-    const end = Math.min(text.length, index + query.length + 50)
-    let snippet = text.substring(start, end)
-    if (start > 0) snippet = '...' + snippet
-    if (end < text.length) snippet = snippet + '...'
-    return snippet
   }
 
   // Navigate to verse from search or bookmark
@@ -489,10 +468,19 @@ function BibleStudyApp() {
                   results={searchResults}
                   query={searchQuery}
                   onVerseClick={navigateToVerse}
+                  onBookClick={(bookResult) => {
+                    navigate(`/resources/books/${bookResult.bookId}`, {
+                      state: {
+                        searchQuery,
+                        chapterIndex: bookResult.chapterIndex,
+                      },
+                    })
+                  }}
                   onCommentaryClick={(commentary) => {
                     // Navigate to the chapter and open sidebar
                     if (commentary.verses && commentary.verses.length > 0) {
                       const firstVerse = commentary.verses[0]
+                      if (commentary.book) setCurrentBook(commentary.book)
                       setCurrentChapter(firstVerse.chapter)
                       setSelectedVerse({ 
                         chapter: firstVerse.chapter, 

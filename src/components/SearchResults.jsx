@@ -1,5 +1,9 @@
-function SearchResults({ results, query, onVerseClick, onCommentaryClick, onClose }) {
-  const totalResults = results.verses.length + results.commentaries.length
+function SearchResults({ results, query, onVerseClick, onCommentaryClick, onBookClick, onClose }) {
+  const verses = results.verses || []
+  const commentaries = results.commentaries || []
+  const books = results.books || []
+  const sectionOrder = results.sectionOrder || ['verses', 'commentaries', 'books']
+  const totalResults = verses.length + commentaries.length + books.length
 
   const highlightText = (text, query) => {
     if (!query) return text
@@ -23,10 +27,12 @@ function SearchResults({ results, query, onVerseClick, onCommentaryClick, onClos
             Search Results
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
-            {results.capped
-              ? <>Showing first {results.verses.length} verse results for "{query}" <span className="text-xs text-amber-600 dark:text-amber-400">(results limited — try a more specific search)</span></>
-              : <>Found {totalResults} result{totalResults !== 1 ? 's' : ''} for "{query}"</>
-            }
+            <>
+              Found {totalResults} result{totalResults !== 1 ? 's' : ''} for "{query}"
+              {(results.versesCapped || results.commentariesCapped || results.booksCapped) && (
+                <span className="text-xs text-amber-600 dark:text-amber-400"> (results limited — try a more specific search)</span>
+              )}
+            </>
           </p>
         </div>
         <button 
@@ -44,68 +50,106 @@ function SearchResults({ results, query, onVerseClick, onCommentaryClick, onClos
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Verse Results */}
-          {results.verses.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                <span>📖</span>
-                Bible Verses ({results.verses.length})
-              </h3>
-              <div className="space-y-2">
-                {results.verses.map((result, index) => (
-                  <div 
-                    key={index}
-                    onClick={() => onVerseClick(result.book || 'Revelation', result.chapter, result.verse)}
-                    className="p-4 bg-gray-50 dark:bg-gray-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-primary">
-                        {result.book || 'Revelation'} {result.chapter}:{result.verse}
-                      </span>
-                      {result.hasCommentary && (
-                        <span className="text-xs bg-secondary/20 text-amber-700 px-2 py-0.5 rounded">
-                          Has Commentary
-                        </span>
-                      )}
-                    </div>
-                    <p className="verse-text text-gray-700 dark:text-gray-300">
-                      {highlightText(result.text, query)}
-                    </p>
+          {sectionOrder.map((section) => {
+            if (section === 'verses' && verses.length > 0) {
+              return (
+                <div key="verses">
+                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                    <span>📖</span>
+                    Bible Verses ({verses.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {verses.map((result, index) => (
+                      <div
+                        key={`verse-${index}`}
+                        onClick={() => onVerseClick?.(result.book || 'Revelation', result.chapter, result.verse)}
+                        className="p-4 bg-gray-50 dark:bg-gray-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-primary">
+                            {result.book || 'Revelation'} {result.chapter}:{result.verse}
+                          </span>
+                          {result.hasCommentary && (
+                            <span className="text-xs bg-secondary/20 text-amber-700 px-2 py-0.5 rounded">
+                              Has Commentary
+                            </span>
+                          )}
+                        </div>
+                        <p className="verse-text text-gray-700 dark:text-gray-300">
+                          {highlightText(result.text, query)}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              )
+            }
 
-          {/* Commentary Results */}
-          {results.commentaries.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                Commentary ({results.commentaries.length})
-              </h3>
-              <div className="space-y-2">
-                {results.commentaries.map((result, index) => (
-                  <div 
-                    key={index}
-                    onClick={() => onCommentaryClick(result)}
-                    className="p-4 bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-primary">
-                        {result.reference}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {result.timestamp}
-                      </span>
-                    </div>
-                    <p className="text-gray-600 dark:text-gray-400">
-                      {highlightText(result.snippet, query)}
-                    </p>
+            if (section === 'commentaries' && commentaries.length > 0) {
+              return (
+                <div key="commentaries">
+                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                    Commentary ({commentaries.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {commentaries.map((result, index) => (
+                      <div
+                        key={`commentary-${index}`}
+                        onClick={() => onCommentaryClick?.(result)}
+                        className="p-4 bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-primary">
+                            {result.reference}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {result.timestamp}
+                          </span>
+                        </div>
+                        <p className="text-gray-600 dark:text-gray-400">
+                          {highlightText(result.snippet, query)}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              )
+            }
+
+            if (section === 'books' && books.length > 0) {
+              return (
+                <div key="books">
+                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                    <span>📚</span>
+                    Books ({books.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {books.map((result, index) => (
+                      <div
+                        key={`book-${index}`}
+                        onClick={() => onBookClick?.(result)}
+                        className="p-4 bg-gray-50 dark:bg-gray-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="font-medium text-primary">
+                            {result.bookTitle}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {result.groupKey !== 'Front Matter' ? `${result.groupKey} · ` : ''}{result.chapterLabel}
+                          </span>
+                        </div>
+                        <p className="text-gray-600 dark:text-gray-400">
+                          {highlightText(result.snippet, query)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            }
+
+            return null
+          })}
         </div>
       )}
     </div>

@@ -1,6 +1,9 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { RESOURCE_CATEGORIES, TAG_COLORS } from '../data/resources'
+import fallbackBibleData from '../data/bible-lsv.json'
+import { searchBibleVerses, searchBookLibrary, searchCommentaryLibrary } from '../utils/librarySearch'
+import SearchResults from './SearchResults'
 
 function ResourceTag({ tag }) {
   const colors = TAG_COLORS[tag]
@@ -28,6 +31,9 @@ const CLICKABLE_CATEGORIES = ['confessions', 'books', 'reading-plans']
 function ResourcePage() {
   const { categoryId } = useParams()
   const navigate = useNavigate()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchResults, setSearchResults] = useState(null)
 
   const category = RESOURCE_CATEGORIES.find(c => c.id === categoryId)
 
@@ -49,6 +55,7 @@ function ResourcePage() {
 
   const isConfessions = categoryId === 'confessions'
   const isBooks = categoryId === 'books'
+  const isBooksSearchMode = isBooks && Boolean(searchQuery.trim())
   const isClickable = CLICKABLE_CATEGORIES.includes(categoryId)
   const items = useMemo(() => {
     if (!isConfessions && !isBooks) return category.items
@@ -66,6 +73,50 @@ function ResourcePage() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false
+    const trimmed = searchQuery.trim()
+
+    if (!isBooks || !trimmed) {
+      setSearchResults(null)
+      setSearchLoading(false)
+      return () => { cancelled = true }
+    }
+
+    const timer = setTimeout(async () => {
+      setSearchLoading(true)
+      const bibleMatches = searchBibleVerses(fallbackBibleData, trimmed, { maxResults: 200 })
+      let commentaryMatches = { items: [], capped: false }
+      let bookMatches = { books: [], capped: false }
+      try {
+        ;[bookMatches, commentaryMatches] = await Promise.all([
+          searchBookLibrary(trimmed, { maxResults: 200, maxPerBook: 80 }),
+          searchCommentaryLibrary(trimmed, { maxResults: 200 }),
+        ])
+      } catch (error) {
+        console.warn('Books-menu search failed', error)
+      }
+
+      if (cancelled) return
+
+      setSearchResults({
+        books: bookMatches.books,
+        booksCapped: bookMatches.capped,
+        verses: bibleMatches.items,
+        versesCapped: bibleMatches.capped,
+        commentaries: commentaryMatches.items,
+        commentariesCapped: commentaryMatches.capped,
+        sectionOrder: ['books', 'verses', 'commentaries'],
+      })
+      setSearchLoading(false)
+    }, 180)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isBooks, searchQuery])
+
   return (
     <div className="min-h-screen bg-background dark:bg-gray-900">
       {/* Header bar */}
@@ -80,68 +131,123 @@ function ResourcePage() {
           <h1 className="text-base sm:text-lg font-bold heading-text truncate">
             {category.title}
           </h1>
+          {isBooks && (
+            <form
+              className="flex-1 min-w-0 max-w-xl"
+              onSubmit={(event) => event.preventDefault()}
+            >
+              <div className="flex items-center bg-white/10 rounded-lg">
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search books, Bible, commentary..."
+                  className="flex-1 bg-transparent px-3 sm:px-4 py-1.5 sm:py-2 text-sm sm:text-base text-white placeholder-blue-200 focus:outline-none min-w-0"
+                />
+                <button type="submit" className="px-2 sm:px-3 py-1.5 sm:py-2 hover:bg-white/10 rounded-r-lg transition-colors">
+                  🔍
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </header>
 
       {/* Items list */}
       <main className="container mx-auto max-w-2xl px-4 py-6">
-        <div className="space-y-3">
-          {items.map(item => {
-            const Wrapper = isClickable ? 'button' : 'div'
-            return (
-              <Wrapper
-                key={item.id}
-                onClick={isClickable ? () => handleItemClick(item) : undefined}
-                className={`w-full text-left p-4 sm:p-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm transition-all ${
-                  isClickable
-                    ? 'hover:border-primary/40 dark:hover:border-blue-400/40 hover:shadow-md active:scale-[0.99] cursor-pointer'
-                    : ''
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-gray-800 dark:text-gray-200 text-sm sm:text-base">
-                        {item.title}
-                      </h3>
-                      {(isConfessions || isBooks) && item.tag && <ResourceTag tag={item.tag} />}
+        {isBooksSearchMode ? (
+          <div className="mb-6">
+            {searchLoading ? (
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+                Searching across books, Bible, and commentary...
+              </div>
+            ) : (
+              <SearchResults
+                results={searchResults || { books: [], verses: [], commentaries: [], sectionOrder: ['books', 'verses', 'commentaries'] }}
+                query={searchQuery}
+                onBookClick={(result) => {
+                  navigate(`/resources/books/${result.bookId}`, {
+                    state: {
+                      searchQuery,
+                      chapterIndex: result.chapterIndex,
+                    },
+                  })
+                }}
+                onVerseClick={(book, chapter) => {
+                  navigate(`/${book.toLowerCase().replace(/\s+/g, '-')}/${chapter}`)
+                }}
+                onCommentaryClick={(commentary) => {
+                  const book = commentary.book || 'Revelation'
+                  const chapter = commentary.verses?.[0]?.chapter || commentary.chapter || 1
+                  navigate(`/${book.toLowerCase().replace(/\s+/g, '-')}/${chapter}`)
+                }}
+                onClose={() => {
+                  setSearchQuery('')
+                  setSearchResults(null)
+                }}
+              />
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {items.map(item => {
+                const Wrapper = isClickable ? 'button' : 'div'
+                return (
+                  <Wrapper
+                    key={item.id}
+                    onClick={isClickable ? () => handleItemClick(item) : undefined}
+                    className={`w-full text-left p-4 sm:p-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm transition-all ${
+                      isClickable
+                        ? 'hover:border-primary/40 dark:hover:border-blue-400/40 hover:shadow-md active:scale-[0.99] cursor-pointer'
+                        : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-gray-800 dark:text-gray-200 text-sm sm:text-base">
+                            {item.title}
+                          </h3>
+                          {(isConfessions || isBooks) && item.tag && <ResourceTag tag={item.tag} />}
+                        </div>
+                        {/* Author line for books */}
+                        {isBooks && item.author && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{item.author}</p>
+                        )}
+                        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                          {item.description}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        {item.year && <YearBadge year={item.year} />}
+                        {isClickable && (
+                          <span className="text-gray-300 dark:text-gray-600 text-lg mt-1">›</span>
+                        )}
+                      </div>
                     </div>
-                    {/* Author line for books */}
-                    {isBooks && item.author && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{item.author}</p>
+                    {/* Audiobook badge for books (no embed on listing page) */}
+                    {isBooks && item.librivox && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+                        <span>🎧</span>
+                        <span>Free audiobook available</span>
+                      </div>
                     )}
-                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                      {item.description}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    {item.year && <YearBadge year={item.year} />}
-                    {isClickable && (
-                      <span className="text-gray-300 dark:text-gray-600 text-lg mt-1">›</span>
-                    )}
-                  </div>
-                </div>
-                {/* Audiobook badge for books (no embed on listing page) */}
-                {isBooks && item.librivox && (
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
-                    <span>🎧</span>
-                    <span>Free audiobook available</span>
-                  </div>
-                )}
-              </Wrapper>
-            )
-          })}
-        </div>
+                  </Wrapper>
+                )
+              })}
+            </div>
 
-        {/* Back button at bottom */}
-        <div className="mt-8 text-center">
-          <button
-            onClick={() => navigate('/genesis/1')}
-            className="text-sm text-primary hover:underline"
-          >
-            Back to Bible
-          </button>
-        </div>
+            {/* Back button at bottom */}
+            <div className="mt-8 text-center">
+              <button
+                onClick={() => navigate('/genesis/1')}
+                className="text-sm text-primary hover:underline"
+              >
+                Back to Bible
+              </button>
+            </div>
+          </>
+        )}
       </main>
     </div>
   )

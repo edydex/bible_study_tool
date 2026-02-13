@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { RESOURCE_CATEGORIES, TAG_COLORS } from '../data/resources'
 import { parseBookChapters, extractChapterNumber } from '../utils/bookChapters'
+import fallbackBibleData from '../data/bible-lsv.json'
+import { makeSearchSnippet, searchBibleVerses, searchBookLibrary, searchCommentaryLibrary } from '../utils/librarySearch'
 
 function splitChapterTitle(title) {
   const match = title.match(/^(.+?)\s+-\s+(chapter\s+.+)$/i)
@@ -37,19 +39,8 @@ function parseInternalBookNumber(groupLabel) {
   return romanToNumber(match[1])
 }
 
-function makeSearchSnippet(paragraph, query) {
-  const source = String(paragraph || '').replace(/\s+/g, ' ').trim()
-  if (!source) return ''
-
-  const lower = source.toLowerCase()
-  const idx = lower.indexOf(query.toLowerCase())
-  if (idx < 0) return source.slice(0, 160)
-
-  const start = Math.max(0, idx - 45)
-  const end = Math.min(source.length, idx + query.length + 85)
-  const prefix = start > 0 ? '…' : ''
-  const suffix = end < source.length ? '…' : ''
-  return `${prefix}${source.slice(start, end)}${suffix}`
+function bookToSlug(bookName) {
+  return String(bookName || '').toLowerCase().replace(/\s+/g, '-')
 }
 
 function highlightText(text, query) {
@@ -74,6 +65,7 @@ function highlightText(text, query) {
 
 function BookViewer() {
   const { itemId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const [bookText, setBookText] = useState('')
   const [textLoading, setTextLoading] = useState(false)
@@ -84,6 +76,17 @@ function BookViewer() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0)
   const [isSearchFocused, setIsSearchFocused] = useState(false)
+  const [otherBookResults, setOtherBookResults] = useState([])
+  const [bibleResults, setBibleResults] = useState([])
+  const [commentaryResults, setCommentaryResults] = useState([])
+  const [crossSearchLoading, setCrossSearchLoading] = useState(false)
+  const [crossSearchCapped, setCrossSearchCapped] = useState({
+    books: false,
+    bible: false,
+    commentary: false,
+  })
+  const pendingChapterRef = useRef(null)
+  const crossSearchRequestRef = useRef(0)
 
   const category = RESOURCE_CATEGORIES.find(c => c.id === 'books')
   const book = category?.items.find(i => i.id === itemId)
@@ -119,6 +122,17 @@ function BookViewer() {
 
     return () => { cancelled = true }
   }, [book?.textPath])
+
+  useEffect(() => {
+    const incomingQuery = location.state?.searchQuery
+    if (typeof incomingQuery === 'string' && incomingQuery.trim()) {
+      setSearchQuery(incomingQuery)
+    }
+
+    if (Number.isInteger(location.state?.chapterIndex)) {
+      pendingChapterRef.current = location.state.chapterIndex
+    }
+  }, [itemId, location.key])
 
   const chapters = useMemo(() => parseBookChapters(bookText), [bookText])
   const selectedChapter = chapters[selectedChapterIndex] || null
@@ -159,6 +173,13 @@ function BookViewer() {
       setSelectedChapterIndex(0)
     }
   }, [chapters.length, selectedChapterIndex])
+
+  useEffect(() => {
+    if (pendingChapterRef.current == null || chapters.length === 0) return
+    const clamped = Math.max(0, Math.min(pendingChapterRef.current, chapters.length - 1))
+    setSelectedChapterIndex(clamped)
+    pendingChapterRef.current = null
+  }, [chapters.length])
 
   useEffect(() => {
     if (!shouldShowBookSelector) {
@@ -237,6 +258,49 @@ function BookViewer() {
   const searchCapped = searchState.capped
 
   useEffect(() => {
+    const trimmedQuery = searchQuery.trim()
+    const requestId = ++crossSearchRequestRef.current
+
+    if (!trimmedQuery) {
+      setOtherBookResults([])
+      setBibleResults([])
+      setCommentaryResults([])
+      setCrossSearchLoading(false)
+      setCrossSearchCapped({ books: false, bible: false, commentary: false })
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setCrossSearchLoading(true)
+      let bookMatches = { otherBooks: [], capped: false }
+      const bibleMatches = searchBibleVerses(fallbackBibleData, trimmedQuery, { maxResults: 200 })
+      let commentaryMatches = { items: [], capped: false }
+      try {
+        ;[bookMatches, commentaryMatches] = await Promise.all([
+          searchBookLibrary(trimmedQuery, { currentBookId: book?.id, maxResults: 200, maxPerBook: 80 }),
+          searchCommentaryLibrary(trimmedQuery, { maxResults: 200 }),
+        ])
+      } catch (error) {
+        console.warn('Cross-library search failed', error)
+      }
+
+      if (requestId !== crossSearchRequestRef.current) return
+
+      setOtherBookResults(bookMatches.otherBooks)
+      setBibleResults(bibleMatches.items)
+      setCommentaryResults(commentaryMatches.items)
+      setCrossSearchCapped({
+        books: bookMatches.capped,
+        bible: bibleMatches.capped,
+        commentary: commentaryMatches.capped,
+      })
+      setCrossSearchLoading(false)
+    }, 180)
+
+    return () => clearTimeout(timer)
+  }, [book?.id, searchQuery])
+
+  useEffect(() => {
     setActiveSearchResultIndex(0)
   }, [searchQuery])
 
@@ -258,6 +322,25 @@ function BookViewer() {
   const clearSearch = () => {
     setSearchQuery('')
     setActiveSearchResultIndex(0)
+  }
+
+  const openOtherBookResult = (result) => {
+    navigate(`/resources/books/${result.bookId}`, {
+      state: {
+        searchQuery,
+        chapterIndex: result.chapterIndex,
+      },
+    })
+  }
+
+  const openBibleResult = (result) => {
+    navigate(`/${bookToSlug(result.book)}/${result.chapter}`)
+  }
+
+  const openCommentaryResult = (result) => {
+    const commentaryBook = result.book || 'Revelation'
+    const commentaryChapter = result.verses?.[0]?.chapter || result.chapter || 1
+    navigate(`/${bookToSlug(commentaryBook)}/${commentaryChapter}`)
   }
 
   const goToPreviousChapter = () => {
@@ -293,6 +376,9 @@ function BookViewer() {
   const sourceLabel = book.textUrl?.includes('gutenberg.org') ? 'Gutenberg ↗' : 'Source text ↗'
   const tagColors = book.tag ? TAG_COLORS[book.tag] : null
   const hasChapters = !textLoading && !textError && chapters.length > 0
+  const totalSearchResults = searchResults.length + otherBookResults.length + bibleResults.length + commentaryResults.length
+  const isSearchMode = Boolean(searchQuery.trim())
+  const hasLimitedResults = searchCapped || crossSearchCapped.books || crossSearchCapped.bible || crossSearchCapped.commentary
 
   return (
     <div className="min-h-screen bg-background dark:bg-gray-900">
@@ -342,6 +428,165 @@ function BookViewer() {
       </header>
 
       <main className="container mx-auto max-w-2xl px-4 sm:px-6 py-6 pb-28">
+        {isSearchMode && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+            <div className="flex items-center justify-between gap-3 mb-6">
+              <div>
+                <h2 className="heading-text text-2xl font-bold text-primary dark:text-blue-400">
+                  Search Results
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                  {totalSearchResults === 0
+                    ? <>No results found for "{searchQuery}"</>
+                    : <>
+                        Found {totalSearchResults} result{totalSearchResults === 1 ? '' : 's'} for "{searchQuery}"
+                        {hasLimitedResults && (
+                          <span className="text-xs text-amber-600 dark:text-amber-400"> (results limited — try a more specific search)</span>
+                        )}
+                      </>
+                  }
+                </p>
+              </div>
+              <button
+                onClick={clearSearch}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+              >
+                Clear Search
+              </button>
+            </div>
+
+            {crossSearchLoading && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 animate-pulse">
+                Searching other books, Bible, and commentary...
+              </p>
+            )}
+
+            {totalSearchResults > 0 ? (
+              <div className="max-h-[70vh] overflow-y-auto space-y-2 pr-1">
+                {searchResults.length > 0 && (
+                  <>
+                    <div className="flex items-center justify-between mt-1 mb-1">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        This Book ({searchResults.length})
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => moveSearchCursor(-1)}
+                          disabled={!searchResults.length}
+                          className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white dark:hover:bg-gray-800"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => moveSearchCursor(1)}
+                          disabled={!searchResults.length}
+                          className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white dark:hover:bg-gray-800"
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    </div>
+                    {searchResults.map((result, index) => (
+                      <button
+                        key={`${result.chapterIndex}-${result.paragraphIndex}-${index}`}
+                        onClick={() => {
+                          jumpToSearchResult(index)
+                          setSearchQuery('')
+                        }}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                          index === activeSearchResultIndex
+                            ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700'
+                            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                        }`}
+                      >
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          {result.groupKey !== 'Front Matter' ? `${result.groupKey} · ` : ''}{result.chapterLabel}
+                        </p>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                          {highlightText(result.snippet, searchQuery)}
+                        </p>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {otherBookResults.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-1">
+                      Other Books ({otherBookResults.length})
+                    </p>
+                    {otherBookResults.map((result, index) => (
+                      <button
+                        key={`other-book-${result.bookId}-${result.chapterIndex}-${result.paragraphIndex}-${index}`}
+                        onClick={() => openOtherBookResult(result)}
+                        className="w-full text-left p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                      >
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          {result.bookTitle} · {result.groupKey !== 'Front Matter' ? `${result.groupKey} · ` : ''}{result.chapterLabel}
+                        </p>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                          {highlightText(result.snippet, searchQuery)}
+                        </p>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {bibleResults.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-1">
+                      Bible ({bibleResults.length})
+                    </p>
+                    {bibleResults.map((result, index) => (
+                      <button
+                        key={`bible-${result.book}-${result.chapter}-${result.verse}-${index}`}
+                        onClick={() => openBibleResult(result)}
+                        className="w-full text-left p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                      >
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          {result.book} {result.chapter}:{result.verse}
+                        </p>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                          {highlightText(result.text, searchQuery)}
+                        </p>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {commentaryResults.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-1">
+                      Commentary ({commentaryResults.length})
+                    </p>
+                    {commentaryResults.map((result, index) => (
+                      <button
+                        key={`commentary-${result.id || index}`}
+                        onClick={() => openCommentaryResult(result)}
+                        className="w-full text-left p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                      >
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          {result.authorName ? `${result.authorName} · ` : ''}{result.reference}
+                        </p>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                          {highlightText(result.snippet, searchQuery)}
+                        </p>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                <p className="text-4xl mb-4">🔍</p>
+                <p>No results found. Try a different search term.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isSearchMode && (
+          <>
         {/* Book info */}
         <div className="text-center mb-8">
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 heading-text">
@@ -442,11 +687,14 @@ function BookViewer() {
                         Search Results
                       </h4>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {searchResults.length === 0
+                        {totalSearchResults === 0
                           ? <>No results found for "{searchQuery}"</>
-                          : searchCapped
-                            ? <>Showing first {searchResults.length} results for "{searchQuery}" <span className="text-xs text-amber-600 dark:text-amber-400">(results limited — try a more specific search)</span></>
-                            : <>Found {searchResults.length} result{searchResults.length === 1 ? '' : 's'} for "{searchQuery}"</>
+                          : <>
+                              Found {totalSearchResults} result{totalSearchResults === 1 ? '' : 's'} for "{searchQuery}"
+                              {(searchCapped || crossSearchCapped.books || crossSearchCapped.bible || crossSearchCapped.commentary) && (
+                                <span className="text-xs text-amber-600 dark:text-amber-400"> (results limited — try a more specific search)</span>
+                              )}
+                            </>
                         }
                       </p>
                     </div>
@@ -458,44 +706,124 @@ function BookViewer() {
                     </button>
                   </div>
 
-                  {searchResults.length > 0 ? (
-                    <>
-                      <div className="flex items-center justify-end gap-1 mb-2">
-                        <button
-                          onClick={() => moveSearchCursor(-1)}
-                          disabled={!searchResults.length}
-                          className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white dark:hover:bg-gray-800"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          onClick={() => moveSearchCursor(1)}
-                          disabled={!searchResults.length}
-                          className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white dark:hover:bg-gray-800"
-                        >
-                          ↓
-                        </button>
-                      </div>
+                  {crossSearchLoading && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 animate-pulse">
+                      Searching other books, Bible, and commentary...
+                    </p>
+                  )}
 
+                  {totalSearchResults > 0 ? (
+                    <>
                       <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                        {searchResults.map((result, index) => (
-                          <button
-                            key={`${result.chapterIndex}-${result.paragraphIndex}-${index}`}
-                            onClick={() => jumpToSearchResult(index)}
-                            className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                              index === activeSearchResultIndex
-                                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700'
-                                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20'
-                            }`}
-                          >
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                              {result.groupKey !== 'Front Matter' ? `${result.groupKey} · ` : ''}{result.chapterLabel}
+                        {searchResults.length > 0 && (
+                          <>
+                            <div className="flex items-center justify-between mt-1 mb-1">
+                              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                This Book ({searchResults.length})
+                              </p>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => moveSearchCursor(-1)}
+                                  disabled={!searchResults.length}
+                                  className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white dark:hover:bg-gray-800"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  onClick={() => moveSearchCursor(1)}
+                                  disabled={!searchResults.length}
+                                  className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white dark:hover:bg-gray-800"
+                                >
+                                  ↓
+                                </button>
+                              </div>
+                            </div>
+                            {searchResults.map((result, index) => (
+                              <button
+                                key={`${result.chapterIndex}-${result.paragraphIndex}-${index}`}
+                                onClick={() => jumpToSearchResult(index)}
+                                className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                                  index === activeSearchResultIndex
+                                    ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700'
+                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                                }`}
+                              >
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                  {result.groupKey !== 'Front Matter' ? `${result.groupKey} · ` : ''}{result.chapterLabel}
+                                </p>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                  {highlightText(result.snippet, searchQuery)}
+                                </p>
+                              </button>
+                            ))}
+                          </>
+                        )}
+
+                        {otherBookResults.length > 0 && (
+                          <>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-1">
+                              Other Books ({otherBookResults.length})
                             </p>
-                            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                              {highlightText(result.snippet, searchQuery)}
+                            {otherBookResults.map((result, index) => (
+                              <button
+                                key={`other-book-${result.bookId}-${result.chapterIndex}-${result.paragraphIndex}-${index}`}
+                                onClick={() => openOtherBookResult(result)}
+                                className="w-full text-left p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                              >
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                  {result.bookTitle} · {result.groupKey !== 'Front Matter' ? `${result.groupKey} · ` : ''}{result.chapterLabel}
+                                </p>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                  {highlightText(result.snippet, searchQuery)}
+                                </p>
+                              </button>
+                            ))}
+                          </>
+                        )}
+
+                        {bibleResults.length > 0 && (
+                          <>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-1">
+                              Bible ({bibleResults.length})
                             </p>
-                          </button>
-                        ))}
+                            {bibleResults.map((result, index) => (
+                              <button
+                                key={`bible-${result.book}-${result.chapter}-${result.verse}-${index}`}
+                                onClick={() => openBibleResult(result)}
+                                className="w-full text-left p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                              >
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                  {result.book} {result.chapter}:{result.verse}
+                                </p>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                  {highlightText(result.text, searchQuery)}
+                                </p>
+                              </button>
+                            ))}
+                          </>
+                        )}
+
+                        {commentaryResults.length > 0 && (
+                          <>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-3 mb-1">
+                              Commentary ({commentaryResults.length})
+                            </p>
+                            {commentaryResults.map((result, index) => (
+                              <button
+                                key={`commentary-${result.id || index}`}
+                                onClick={() => openCommentaryResult(result)}
+                                className="w-full text-left p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                              >
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                  {result.authorName ? `${result.authorName} · ` : ''}{result.reference}
+                                </p>
+                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                  {highlightText(result.snippet, searchQuery)}
+                                </p>
+                              </button>
+                            ))}
+                          </>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -550,10 +878,12 @@ function BookViewer() {
             {'\u2190'} Back to Books
           </button>
         </div>
+          </>
+        )}
       </main>
 
       {/* Bible-style bottom chapter navigation */}
-      {hasChapters && (
+      {hasChapters && !isSearchMode && (
         <>
           <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-lg z-40 safe-area-bottom">
             <div className="flex items-center justify-between h-14 px-2">
