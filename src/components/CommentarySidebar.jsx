@@ -343,6 +343,17 @@ function CommentarySidebar({
   }, [showCompareModal, showNotesModal, showAuthorSearch, showWorkDropdown, showWorkLinksDropdown, onClose])
 
   const verseIsBookmarked = selectedVerse && isBookmarked?.(selectedVerse.chapter, selectedVerse.verse)
+  const selectedVerseDisplayText = selectedVerse
+    ? (
+        selectedVerse.text ||
+        bibleData?.books
+          ?.find(b => b.name === bookName)
+          ?.chapters?.find(c => c.number === selectedVerse.chapter)
+          ?.verses?.find(v => v.number === selectedVerse.verse)
+          ?.text ||
+        ''
+      )
+    : ''
 
   return (
     <>
@@ -433,9 +444,9 @@ function CommentarySidebar({
               📖 {bookName} {selectedVerse.chapter}:{selectedVerse.verse}
             </p>
             {/* Show full verse text on mobile */}
-            {selectedVerse.text && (
-              <p className="text-sm text-gray-700 dark:text-gray-300 lg:hidden leading-relaxed">
-                {selectedVerse.text}
+            {selectedVerseDisplayText && (
+              <p className={`text-sm text-gray-700 dark:text-gray-300 leading-relaxed ${showGoToButton ? '' : 'lg:hidden'}`}>
+                {selectedVerseDisplayText}
               </p>
             )}
           </div>
